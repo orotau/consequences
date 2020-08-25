@@ -1,0 +1,13 @@
+[graham-HP-Laptop]
+source_files_path = /home/graham/PythonProjects/fraser/fraser/1_source_sentences/
+post_gateway_files_path = /home/graham/PythonProjects/fraser/fraser/2_post_gateway/
+pickle_files_path = /home/graham/PythonProjects/fraser/fraser/pickle/
+yaml_files_path = /home/graham/PythonProjects/fraser/fraser/yaml/
+text_files_path = /home/graham/PythonProjects/fraser/fraser/text_files/
+
+[graham-desktop-ubuntu]
+source_files_path = /home/graham/PythonProjects/fraser/fraser/1_source_sentences/
+post_gateway_files_path = /home/graham/PythonProjects/fraser/fraser/2_post_gateway/
+pickle_files_path = /home/graham/PythonProjects/fraser/fraser/pickle/
+yaml_files_path = /home/graham/PythonProjects/fraser/fraser/yaml/
+text_files_path = /home/graham/PythonProjects/fraser/fraser/text_files/
