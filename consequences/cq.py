@@ -10,140 +10,103 @@ Finish by emailing a "consequence" to each participant
 import config
 import os
 import pprint
-from datetime import datetime
-import xml.etree.ElementTree as ET
-import collections
-from yattag import Doc, indent
+from distutils.util import strtobool
+import gspread
+import yagmail
+import keyring
 
-TRACK_PREFIXES = ["BEACH", "CAMPING", "KURA", "LODGE", "QB", "TELE"]
-STILL_ALIVE_SYMBOL = "Flag, Blue"
-NAMESPACE = "http://www.topografix.com/GPX/1/1"
-
-cf = config.ConfigFile()
-raw_waypoints_files_path = (cf.configfile[cf.computername]['raw_waypoints_files_path'])
-
-def waypoints_sort_key(filename):
-    # example Waypoints_03-SEP-17.gpx
-    # return the date time equivalent of the 03-SEP-17
-    waypoint_day = filename[10:12] # %d
-    waypoint_month = filename[13:16] # close to %b = Sep
-    waypoint_month_to_use = waypoint_month[0] + waypoint_month[1:3].lower()
-    waypoint_year = filename[17:19] # %y
-
-    waypoint_date = waypoint_year + waypoint_month_to_use + waypoint_day
-    waypoint_as_datetime = datetime.strptime(waypoint_date, "%y%b%d")
-
-    return waypoint_as_datetime
-
-# https://stackoverflow.com/questions/14853243/parsing-xml-with-namespace-in-python-via-elementtree
-# https://docs.python.org/2/library/xml.etree.elementtree.html#parsing-xml-with-namespaces
-def tag_only(tag_and_URI):
-    # Strips off the Namespace that is attached to the tag at the beginning
-    # for example will replace {http://www.topografix.com/GPX/1/1}wpt with wpt
-    tag_only = tag_and_URI.replace("{" + NAMESPACE + "}", "")
-    return tag_only
-
-def add_uri_to_tag(tag):
-    return "{" + NAMESPACE + "}" + tag
+CQ_HOME_BASE_ID = '1uQs36Izy09dv5b5duAUzhA_NZRWqKF-bksNDftwgHfU'
+CQ_RESPONSES_ID = "Flag, Blue"
+CQ_FORM_URL = 'https://forms.gle/CXbFueKHzhi4B2Y96'
+START_EMAIL_BODY = '<a href='+CQ_FORM_URL+'>Click me!</a>'
 
 
-def create_marble_files():
+def start():
 
-    # Get a list of all the files and folders in the raw_waypoints directory
-    date_folders = [d for d in os.listdir(raw_waypoints_files_path) if \
-        os.path.isdir(os.path.join(raw_waypoints_files_path, d))]
+    participants = get_participants()
 
-    # get the folder to use (the most recent) - format expected to be yyyy-mm-dd
-    date_folders.sort(key=lambda x: datetime.strptime(x, "%Y-%m-%d"))
-    folder_to_use = date_folders[-1]
-    folder_to_use_filepath = os.path.join(raw_waypoints_files_path, folder_to_use)
-    print(folder_to_use_filepath)
+    # Send the emails, with a link to the form - use yagmail and keyring
+    for participant in participants:
+        subject = "Hey " + participant[0] + " time to Consequence!"
+        content = START_EMAIL_BODY
+        email_address = participant[1]
+        with yagmail.SMTP('greenbay.graham') as yag:
+            yag.send(email_address, subject, content)
+    return True
 
-    # within this folder we are assuming there to be 1 or more text files of the form
-    # Waypoints_03-SEP-17.gpx
-    # we need to go through them most recent first
-    # order them from the most recent to the oldest
-    # thus in the unlikely event that we have repeated names only the most
-    # up to date version of the name will be used. (Haven't thought this through thoroughly)
-    waypoints_filenames = os.listdir(folder_to_use_filepath)
-    waypoints_filenames.sort(key = waypoints_sort_key, reverse=True)
-    print(waypoints_filenames)
+def finish():
 
-    # open each filename in turn and extract waypoints that are still alive
-    # they will be in a dictionary with key "name"
-    # note that if a name appears more than once only the first (ie most recent)
-    # version will be used
-    all_waypoints = {}
-    all_still_alive_waypoints = {}
-    Waypoint = collections.namedtuple('Waypoint', 'lat lon ele sym')
-    for wp_filename in waypoints_filenames:
-        tree = ET.parse(os.path.join(folder_to_use_filepath, wp_filename))
-        root = tree.getroot()
-        for wpt in root.findall(add_uri_to_tag("wpt")):
-            print()
-            # get the name of this waypoint
-            wpt_name = wpt.find(add_uri_to_tag("name")).text
+    # At this point we are 'hoping' that all of the consequence forms
+    # have been returned from the participants ...
+    
+    # we need to allow for the scenario that we get 1 or more, less than
+    # we expected. It is going to be a bit variable ...
 
-            # if this name is not already in the all_waypoint dictionary add a record
-            if not wpt_name in all_waypoints:
-                wpt_lat = wpt.attrib["lat"]
-                wpt_lon = wpt.attrib["lon"]
-                wpt_ele = wpt.find(add_uri_to_tag("ele")).text
-                wpt_sym = wpt.find(add_uri_to_tag("sym")).text
-                all_waypoints[wpt_name] = Waypoint(wpt_lat, wpt_lon, wpt_ele, wpt_sym)
+    # we won't know whose we haven't got ...
 
-    all_still_alive_waypoints = {key: all_waypoints[key] for key in all_waypoints \
-        if all_waypoints[key].sym == STILL_ALIVE_SYMBOL}
+    participants = get_participants()
+    print (participants)
 
-    pprint.pprint(all_still_alive_waypoints)
-
-    # create the .gpx files for each track
-    # here is an example of a wpt entry
-    '''
-    <wpt lat="-37.037798" lon="174.511325">
-        <ele>4.663168</ele>
-        <name>TESTQB01~(A24)</name>
-    </wpt>
-    '''
-    waypoints_for_track = {}
-
-    filename_start = datetime.now().strftime('%Y-%m-%d_%H:%M:%S')
-
-    for track_prefix in TRACK_PREFIXES:
-        # for yattag
-        doc, tag, text = Doc().tagtext()
-        waypoints_for_track = {key: all_still_alive_waypoints[key] \
-            for key in all_still_alive_waypoints if key.startswith(track_prefix)}
-        for k, v in sorted(waypoints_for_track.items()): # sorts by key
-            print(k, v)
-
-        with tag('gpx', xmlns="http://www.topografix.com/GPX/1/1"):
-            for k, v in sorted(waypoints_for_track.items()):
-                with tag('wpt', lat=v.lat, lon=v.lon):
-                    with tag('name'):
-                        text(k)
-                    with tag('ele'):
-                        text(int(float(v.ele))) # round elevation to nearest metre
-
-        result = indent(
-            doc.getvalue(),
-            indentation = ' '*4,
-            newline = '\r\n'
-        )
-
-        # write gpx file
-        marble_waypoints_files_path = (cf.configfile[cf.computername]['marble_waypoints_files_path'])
-        marble_filename = filename_start + "_" + track_prefix + os.extsep + "gpx"
-        subfolder_name = filename_start
-        marble_filepath = os.path.join(marble_waypoints_files_path, subfolder_name, marble_filename)
-
-        os.makedirs(os.path.dirname(marble_filepath), exist_ok=True)
-        with open(marble_filepath, "w") as myfile:
-            myfile.write(result)
+    # get the responses spreadsheet
 
     return True
 
+def get_participants():
+    gc = gspread.oauth()
 
+    # Get the whole spreadsheet
+    home_base_spreadsheet = gc.open_by_key(CQ_HOME_BASE_ID)
+
+    # Get the first worksheet of the spreadsheet
+    home_base_worksheet = home_base_spreadsheet.get_worksheet(0)
+
+    # Get the values along the top of the worksheet
+    # We are assuming that we are going to get something like
+    '''['Name',
+       'Email',
+       'August 25, 2020 11:33:12',
+       'August 25, 2020 11:38:11',
+       'August 26, 2020 11:23:41']
+    '''
+    # we WILL USE the last value in this list to start the game    
+    top_row_values = home_base_worksheet.row_values(1)
+    game_datetime = top_row_values[-1]
+    print('Game Date Time')
+    pprint.pprint(game_datetime)
+
+
+    # Get all of the information on the home base worksheet 
+    # We will get a list of dicts
+    # The format appears to be like what is given below
+    # 
+    # 2 things I have noticed
+    # a) The *first entry* always seems to be '':'FALSE'
+    # b) Apart from this *first entry* there MUST be something in the first row
+    #     of the spreadsheet column for an associated entry to appear in the dict
+    '''
+    [{'': 'FALSE',
+     'August 25, 2020 11:33:12': 'FALSE',
+     'August 25, 2020 11:38:11': 'FALSE',
+     'August 26, 2020 11:23:41': 'FALSE',
+     'Email': 'pangakupu@gmail.com',
+     'Name': 'roger'}, etc... etc...
+    '''
+        
+    all_info = home_base_worksheet.get_all_records()
+    print('')
+    print('all_info')
+    pprint.pprint(all_info)
+
+    # extract the list of participants and their emails
+    # as a list of tuples (Name, Email)
+    participants = []
+    for person_info in all_info:
+        if strtobool(person_info[game_datetime]):
+            # this person is participating
+            participants.append((person_info['Name'], person_info['Email']))
+
+    pprint.pprint("There are " + str(len(participants)) + " taking part")
+    return participants
 
 if __name__ == '__main__':
 
@@ -155,9 +118,13 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers()
 
-    # create the parser for the create_internal_release function
-    create_marble_files_parser = subparsers.add_parser('create_marble_files')
-    create_marble_files_parser.set_defaults(function = create_marble_files)
+    # create the parser for the start function
+    start_parser = subparsers.add_parser('start')
+    start_parser.set_defaults(function = start)
+
+    # create the parser for the finish function
+    finish_parser = subparsers.add_parser('finish')
+    finish_parser.set_defaults(function = finish)
 
     # parse the arguments
     arguments = parser.parse_args()
