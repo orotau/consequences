@@ -12,6 +12,7 @@ import os
 import pprint
 from distutils.util import strtobool
 from collections import deque
+from itertools import chain
 import datetime as dt
 import gspread
 import yagmail
@@ -25,7 +26,6 @@ MAX_OK_MISSING = 2 # the # of missing responses we are happy to proceed with
 MAX_OK_RANGE = 1200000000000 # seconds
 DUMMY = ('R2D2', 'C3PO', 'Some Random Planet', \
                     'Beep Beep', 'You are annoying', 'They went to bed for a nap')
-CQ_TEXT = [" met ", " at ", " said to ", " said to ", " and the covid consequence was "]
 
 gc = gspread.oauth()
 
@@ -128,11 +128,17 @@ def finish():
         consequences.append(DUMMY)
     pprint.pprint(consequences)
 
+    # I am not sure why the consequences are tuples (apart from the Dummy 
+    # one(s) if any) because I set that to be a tuple to match
+    # However going to convert to lists now to make the final bit easier
+
+    consequences = [list(x) for x in consequences]
+    pprint.pprint(consequences)
+
     # now for emailing
     for participant, consequence in zip(participants, consequences):
         subject = "Hey " + participant[0] + " actions have Consequences!"
-        content = zip(consequence, CQ_TEXT)
-        print(content)
+        content = create_content(consequence)
         email_address = participant[1]
         with yagmail.SMTP('greenbay.graham') as yag:
             yag.send(email_address, subject, content)
@@ -141,6 +147,43 @@ def finish():
     
 
     return True
+
+def create_content(consequence):
+    # given the consequence, create the content of the email
+    consequence[0] = "'" + consequence[0] + "'" # " ' "
+    consequence[1] = "'" + consequence[1] + "'"
+    consequence[3] = '"' + consequence[3] + '"' # ' " '
+    consequence[4] = '"' + consequence[4] + '"'
+    divider = "~"
+    content = []
+
+    # Male met Female
+    male_met_female_text = consequence[0] + " met " + consequence[1]
+    content.append(male_met_female_text)
+
+    #At
+    content.append("(at)")
+    content.append(consequence[2]) # Where they met
+    content.append(divider)
+
+    #Male said to Female
+    male_said_to_female_text = consequence[0] + " said to " + consequence[1]
+    content.append(male_said_to_female_text)
+    content.append(consequence[3]) # Male said to Female
+    content.append(divider)
+
+    #Female said to Male
+    female_said_to_male_text = consequence[1] + " said to " + consequence[0]
+    content.append(female_said_to_male_text)
+    content.append(consequence[4]) # Female said to Male
+    content.append(divider)
+
+    #Consequence
+    content.append("and the Covid Consequence was ...")
+    content.append(consequence[5]) # Consequence 
+    print(content)
+    return content
+
 
 def get_participants():
 
