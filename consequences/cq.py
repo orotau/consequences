@@ -11,15 +11,23 @@ import config
 import os
 import pprint
 from distutils.util import strtobool
+from collections import deque
+import datetime as dt
 import gspread
 import yagmail
 import keyring
 
 CQ_HOME_BASE_ID = '1uQs36Izy09dv5b5duAUzhA_NZRWqKF-bksNDftwgHfU'
-CQ_RESPONSES_ID = "Flag, Blue"
+CQ_RESPONSES_ID = '1b43ZbTiReD4oCXrX6odYESkylbe8zmgXVJRSrh2Cz_Y'
 CQ_FORM_URL = 'https://forms.gle/CXbFueKHzhi4B2Y96'
 START_EMAIL_BODY = '<a href='+CQ_FORM_URL+'>Click me!</a>'
+MAX_OK_MISSING = 2 # the # of missing responses we are happy to proceed with
+MAX_OK_RANGE = 1200000000000 # seconds
+DUMMY = ('R2D2', 'C3PO', 'Some Random Planet', \
+                    'Beep Beep', 'You are annoying', 'They went to bed for a nap')
+CQ_TEXT = [" met ", " at ", " said to ", " said to ", " and the covid consequence was "]
 
+gc = gspread.oauth()
 
 def start():
 
@@ -32,6 +40,7 @@ def start():
         email_address = participant[1]
         with yagmail.SMTP('greenbay.graham') as yag:
             yag.send(email_address, subject, content)
+            print ("email sent to " + participant[0] + " at " + participant[1])
     return True
 
 def finish():
@@ -40,19 +49,100 @@ def finish():
     # have been returned from the participants ...
     
     # we need to allow for the scenario that we get 1 or more, less than
-    # we expected. It is going to be a bit variable ...
+    # we expected. 
 
     # we won't know whose we haven't got ...
 
     participants = get_participants()
-    print (participants)
+    total_participants = len(participants)
+    # print (participants)
 
     # get the responses spreadsheet
+    responses_spreadsheet = gc.open_by_key(CQ_RESPONSES_ID)
+
+    # Get the first worksheet of the spreadsheet
+    responses_worksheet = responses_spreadsheet.get_worksheet(0)
+
+    # get the first column data
+    first_column_values = responses_worksheet.col_values(1)
+    # pprint.pprint(first_column_values)
+
+    # count usable responses
+    from dateutil import parser # had to import here otherwise didn't work
+    most_recent_date_time = parser.parse(first_column_values[-1])
+    usable_responses_count = 0
+    for v in reversed(first_column_values):
+        try:
+            date_time_of_response = parser.parse(v)
+        except parser._parser.ParserError:
+            # we have reached the first row
+            break
+        else:
+            response_range = (most_recent_date_time - date_time_of_response).total_seconds()
+            # print(response_range)
+            if response_range <= MAX_OK_RANGE:
+                usable_responses_count = usable_responses_count + 1
+            else:
+                break
+    # print(usable_responses_count)
+
+    # compare usable responses with ones we will use (using)
+    if usable_responses_count < total_participants - MAX_OK_MISSING:
+        return ("Not enough usable responses")
+    elif usable_responses_count > total_participants:
+        # possible in testing but very unlikely in production
+        print ("WARNING")
+        using_responses_count = total_participants
+    else:
+        using_responses_count = usable_responses_count
+
+
+    # we can now go to creating and delivering the responses
+    all_responses = responses_worksheet.get_all_values()
+    # pprint.pprint(all_responses)
+
+    # slice off the usable responses we will be using
+    using_responses = all_responses[-using_responses_count:]
+    # print(using_responses)
+
+    # transpose the list from per response to per category 
+    using_responses_by_category = list(list(a) for a in zip(*using_responses))
+    # pprint.pprint(using_responses_by_category)
+
+    # now rotate each category by 1, 2 etc to create the consequences
+    consequences = []
+    for position, category in enumerate(using_responses_by_category[1:]):
+        # not the first column which is just dates
+        category_to_rotate = deque(category)
+        category_to_rotate.rotate(position)
+        consequences.append(list(category_to_rotate))
+
+    # pprint.pprint(consequences)
+    consequences = list(zip(*consequences))
+
+    # we could have more participants that consequences
+    # in which case add dummy consequences to the consequences (if needed)
+    dummy_count = total_participants - len(consequences)
+    for x in range(dummy_count):
+        # won't run if dummy_count is 0
+        consequences.append(DUMMY)
+    pprint.pprint(consequences)
+
+    # now for emailing
+    for participant, consequence in zip(participants, consequences):
+        subject = "Hey " + participant[0] + " actions have Consequences!"
+        content = zip(consequence, CQ_TEXT)
+        print(content)
+        email_address = participant[1]
+        with yagmail.SMTP('greenbay.graham') as yag:
+            yag.send(email_address, subject, content)
+            print ("result email sent to " + participant[0] + " at " + participant[1])
+        
+    
 
     return True
 
 def get_participants():
-    gc = gspread.oauth()
 
     # Get the whole spreadsheet
     home_base_spreadsheet = gc.open_by_key(CQ_HOME_BASE_ID)
@@ -93,9 +183,9 @@ def get_participants():
     '''
         
     all_info = home_base_worksheet.get_all_records()
-    print('')
-    print('all_info')
-    pprint.pprint(all_info)
+    #print('')
+    #print('all_info')
+    #pprint.pprint(all_info)
 
     # extract the list of participants and their emails
     # as a list of tuples (Name, Email)
