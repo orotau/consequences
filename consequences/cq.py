@@ -143,9 +143,6 @@ def finish():
         with yagmail.SMTP('greenbay.graham') as yag:
             yag.send(email_address, subject, content)
             print ("result email sent to " + participant[0] + " at " + participant[1])
-        
-    
-
     return True
 
 def create_content(consequence):
