@@ -23,7 +23,7 @@ CQ_RESPONSES_ID = '1b43ZbTiReD4oCXrX6odYESkylbe8zmgXVJRSrh2Cz_Y'
 CQ_FORM_URL = 'https://forms.gle/CXbFueKHzhi4B2Y96'
 START_EMAIL_BODY = '<a href='+CQ_FORM_URL+'>Click me!</a>'
 MAX_OK_MISSING = 2 # the # of missing responses we are happy to proceed with
-MAX_OK_RANGE = 1200000000000 # seconds
+MAX_OK_RANGE = 420 # seconds
 DUMMY = ('R2D2', 'C3PO', 'Some Random Planet', \
                     'Beep Beep', 'You are annoying', 'They went to bed for a nap')
 
